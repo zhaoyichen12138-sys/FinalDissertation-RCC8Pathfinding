@@ -234,7 +234,6 @@ def planning_map(known_map):
 wp_index = 0
 REACH = 0.06        # the distance threshold to reach a waypoint (m)
 GOAL_REACH = 0.08   # the distance threshold to reach the goal
-REPLAN_INTERVAL = 20      # enforce replan every 20 steps
 step_count = 0
 waypoints = []
 replan_count = 0
@@ -261,8 +260,7 @@ while robot.step(timestep) != -1:
 
     # ---- decide where to go next ----
     need_replan = (found_new or not waypoints
-                   or wp_index >= len(waypoints)
-                   or step_count % REPLAN_INTERVAL == 0)
+                   or wp_index >= len(waypoints))
 
     if need_replan:
         start = world_to_grid(ep[0], ep[1])
