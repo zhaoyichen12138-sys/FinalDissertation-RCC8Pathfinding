@@ -74,10 +74,10 @@ def build_adjacency(regions):
             if rel == "EC":          # EC = adjacency = could pass through
                 adj[a].append(b)
                 adj[b].append(a)
-            print(f"RCC8({a}, {b}) = {rel}")
+            # print(f"RCC8({a}, {b}) = {rel}")
     return adj
 ADJACENCY = build_adjacency(REGIONS)
-print("Region adjacency:", ADJACENCY)
+# print("Region adjacency:", ADJACENCY)
 
 # ---------- Topological layer planning: BFS to find region sequence ----------
 def locate_region(x, y, regions):
@@ -168,7 +168,7 @@ def add_solid_to_grid(def_name, grid):
 
 # ---------- 规划一次 ----------
 UNKNOWN, FREE, OCCUPIED = -1, 0, 1
-known_map = np.full((H, W), UNKNOWN)   # 已知地图,初始全未知
+known_map = np.full((H, W), UNKNOWN)   # robot known map, initial all unknown(updating with exploration)
 
 # -------- real-world map (Only for local perception searching, robot cannot use it for planning directly)
 true_map = np.zeros((H, W))
@@ -197,6 +197,34 @@ def sense(robot_x, robot_y, known_map, true_map):
                     found_new_obstacle = True
     return found_new_obstacle
 
+def try_detect_target(robot_x, robot_y):
+    """check if the red box is within the sensor range; if so, return its grid coordinates, otherwise None"""
+    rb = red_box.getPosition()
+    dist = math.hypot(rb[0] - robot_x, rb[1] - robot_y)
+    if dist <= SENSOR_RANGE:
+        return world_to_grid(rb[0], rb[1])
+    return None
+
+def find_nearest_frontier(known_map, robot_rc):
+    """find the nearest frontier cell (unknown cell adjacent to known free space)"""
+    frontiers = []
+    for r in range(H):
+        for c in range(W):
+            if known_map[r, c] != FREE:
+                continue
+            # check if any of the four neighbors is an unknown cell
+            for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                nr, nc = r+dr, c+dc
+                if 0 <= nr < H and 0 <= nc < W and known_map[nr, nc] == UNKNOWN:
+                    frontiers.append((c, r))
+                    break
+    if not frontiers:
+        return None
+    # choose the nearest one to the robot
+    rc, rr = robot_rc
+    frontiers.sort(key=lambda f: math.hypot(f[0]-rc, f[1]-rr))
+    return frontiers[0]
+
 def planning_map(known_map):
     """treat as accessble area if unknown, and do A* planning"""
     m = known_map.copy()
@@ -211,9 +239,6 @@ step_count = 0
 waypoints = []
 replan_count = 0
 trajectory = [] # to record routine that robot has passed
-
-# rb = red_box.getPosition() # tell the robot where the red box is
-# goal = world_to_grid(rb[0], rb[1])
 goal =  None
 goal_found = False
 
@@ -225,30 +250,49 @@ while robot.step(timestep) != -1:
     # ---- perception ----
     found_new = sense(ep[0], ep[1], known_map, true_map)
 
-    # ---- judge whether replanning is needed ----
-    need_replan = (
-        found_new                                  # new obstacle found
-        or not waypoints                           # no path yet
-        or wp_index >= len(waypoints)              # path completed but goal not reached
-        or step_count % REPLAN_INTERVAL == 0       # periodic replanning
-    )
+    # ---- try to detect target ----
+    if not goal_found:
+        detected = try_detect_target(ep[0], ep[1])
+        if detected:
+            goal = detected
+            goal_found = True
+            waypoints = []          # empty the old exploration path, force replanning towards the target
+            print(f">>> target detected! Located at grid {goal}")
+
+    # ---- decide where to go next ----
+    need_replan = (found_new or not waypoints
+                   or wp_index >= len(waypoints)
+                   or step_count % REPLAN_INTERVAL == 0)
 
     if need_replan:
         start = world_to_grid(ep[0], ep[1])
         pmap = planning_map(known_map)
-        new_path = astar(pmap, start, goal)
+
+        if goal_found:
+            target_cell = goal                          
+        else:
+            target_cell = find_nearest_frontier(known_map, start)   # explore unknown area if goal not found yet
+
+        if target_cell is None:
+            print(">>> map exploration complete, no frontiers left")
+            left.setVelocity(0.0); right.setVelocity(0.0)
+            break
+
+        new_path = astar(pmap, start, target_cell)
         if new_path:
             waypoints = [grid_to_world(c, r) for (c, r) in new_path]
             wp_index = 1 if len(waypoints) > 1 else 0
             replan_count += 1
 
     # ---- judge whether goal is reached ----
-    dist_to_goal = math.hypot(rb[0] - ep[0], rb[1] - ep[1])
-    if dist_to_goal < GOAL_REACH:
-        left.setVelocity(0.0)
-        right.setVelocity(0.0)
-        print(f">>> Arrived. Replanned {replan_count} times.")
-        break
+    if goal_found:
+        rb = red_box.getPosition()
+        dist_to_goal = math.hypot(rb[0] - ep[0], rb[1] - ep[1])
+        if dist_to_goal < GOAL_REACH:
+            left.setVelocity(0.0)
+            right.setVelocity(0.0)
+            print(f">>> Arrived. Replanned {replan_count} times.")
+            break
     
     # ---- execute: move towards current waypoint ----
     if not waypoints or wp_index >= len(waypoints):
