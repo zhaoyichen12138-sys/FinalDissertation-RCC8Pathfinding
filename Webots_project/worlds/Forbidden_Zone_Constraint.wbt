@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Parquetry.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.24550247944133538 0.271029010383949 0.9307372390306806 1.5436706348097475
+  position -0.27685529177538654 -3.4811459454819067 1.8317909882095447
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  rotation 0 1 0 0
+  floorSize 2 2
+  floorAppearance Parquetry {
+    type "light strip"
+  }
+}
+DEF RED_BOX Solid {
+  translation 0.5 0.4 0.05
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0.149126 0
+        }
+      }
+      geometry Box {
+        size 0.1 0.1 0.1
+      }
+    }
+  ]
+}
+DEF EPUCK E-puck {
+  translation -0.7 -0.7 -6.3962e-05
+  rotation 0.28663681482654446 -0.9580393188100659 1.9595172108970428e-07 2.5587985847032493e-08
+  controller "navigator_withRCC8(without_obstacle)"
+  supervisor TRUE
+}

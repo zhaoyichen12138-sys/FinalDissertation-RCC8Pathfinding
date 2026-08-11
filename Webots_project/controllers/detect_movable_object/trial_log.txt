@@ -34,3 +34,14 @@
 1.471	2
 1.471	2
 0.229	1
+1.437	2
+path length: 9.991	 replan count: 97
+path length: 1.929	 replan count: 11
+path length: 2.496	 replan count: 15
+path length: 8.390	 replan count: 85
+path length: 9.557	 replan count: 131
+path length: 8.390	 replan count: 85
+path length: 1.879	 replan count: 12
+path length: 8.390	 replan count: 85
+path length: 1.929	 replan count: 12
+path length: 8.390	 replan count: 85

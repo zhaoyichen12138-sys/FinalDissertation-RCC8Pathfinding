@@ -3,14 +3,14 @@
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Parquetry.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.5051047469738205 0.5451662117524052 0.669076225962367 1.8907325827585488
-  position -0.28546064774096863 -1.0723160035585846 3.097508238597814
+  orientation -0.06749563644593685 0.16788763374870136 0.9834927968699211 0.7761404130564138
+  position -2.374826821348379 -1.507220778212996 0.25128863227714393
 }
 TexturedBackground {
 }
@@ -22,11 +22,24 @@ RectangleArena {
     type "light strip"
   }
 }
-DEF EPUCK E-puck {
-  translation -0.4 -0.7 -6.3962e-05
-  rotation 0.28663681482654446 -0.9580393188100659 1.9595172108970428e-07 2.5587985847032493e-08
-  controller "detect_movable_object"
-  supervisor TRUE
+DEF WALL3 Solid {
+  translation 0 -0.745 0.1
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.500008 0.500008 0.500008
+        }
+      }
+      geometry Box {
+        size 0.05 0.5 0.2
+      }
+    }
+  ]
+  name "solid(4)"
+  boundingObject Box {
+    size 0.05 0.5 0.2
+  }
 }
 DEF RED_BOX Solid {
   translation 0.5 0.4 0.05
@@ -43,8 +56,32 @@ DEF RED_BOX Solid {
     }
   ]
 }
-DEF WALL1 Solid {
-  translation 0 -0.575 0.1
+DEF MOVABLE_BOX Solid {
+  translation 0 -0.386 0.05
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0.976806 0
+          transparency 0.2
+        }
+      }
+      geometry Box {
+        size 0.05 0.22 0.1
+      }
+    }
+  ]
+  name "solid(3)"
+  boundingObject Box {
+    size 0.05 0.22 0.1
+  }
+  physics Physics {
+    density -1
+    mass 0.1
+  }
+}
+DEF WALL2 Solid {
+  translation 0 0.15 0.1
   children [
     Shape {
       appearance Appearance {
@@ -62,8 +99,8 @@ DEF WALL1 Solid {
     size 0.05 0.85 0.2
   }
 }
-DEF WALL2 Solid {
-  translation 0 0.575 0.1
+DEF WALL1 Solid {
+  translation 0 0.9 0.1
   children [
     Shape {
       appearance Appearance {
@@ -72,36 +109,18 @@ DEF WALL2 Solid {
         }
       }
       geometry Box {
-        size 0.05 0.85 0.2
+        size 0.05 0.2 0.2
       }
     }
   ]
   name "solid(2)"
   boundingObject Box {
-    size 0.05 0.85 0.2
+    size 0.05 0.2 0.2
   }
 }
-DEF MOVABLE_BOX Solid {
-  translation -0.1 0.2 0.05
-  children [
-    Shape {
-      appearance Appearance {
-        material Material {
-          diffuseColor 0 0.976806 0
-          transparency 0.2
-        }
-      }
-      geometry Box {
-        size 0.1 0.1 0.1
-      }
-    }
-  ]
-  name "solid(3)"
-  boundingObject Box {
-    size 0.1 0.1 0.1
-  }
-  physics Physics {
-    density -1
-    mass 0.1
-  }
+DEF EPUCK E-puck {
+  translation -0.4 -0.7 -6.3962e-05
+  rotation 0.28663681482654446 -0.9580393188100659 1.9595172108970428e-07 2.5587985847032493e-08
+  controller "Astar_with_Penalty"
+  supervisor TRUE
 }

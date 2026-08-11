@@ -52,25 +52,25 @@ while robot.step(timestep) != -1:
             grid[rb_r, rb_c] = 2
 
         # ---------- 绘图:白底 + 网格线 ----------
-        fig, ax = plt.subplots(figsize=(6, 6))
+        # fig, ax = plt.subplots(figsize=(6, 6))
 
         # 白底,只画有内容的格子
-        cmap = matplotlib.colors.ListedColormap(["white", "tab:blue", "red"])
-        ax.imshow(grid, origin="lower", cmap=cmap, vmin=0, vmax=2)
+        # cmap = matplotlib.colors.ListedColormap(["white", "tab:blue", "red"])
+        # ax.imshow(grid, origin="lower", cmap=cmap, vmin=0, vmax=2)
 
         # 每格一条网格线:次刻度落在格子边界上
-        ax.set_xticks(np.arange(-0.5, W, 1), minor=True)
-        ax.set_yticks(np.arange(-0.5, H, 1), minor=True)
-        ax.grid(which="minor", color="lightgray", linewidth=0.5)
+        # ax.set_xticks(np.arange(-0.5, W, 1), minor=True)
+        # ax.set_yticks(np.arange(-0.5, H, 1), minor=True)
+        # ax.grid(which="minor", color="lightgray", linewidth=0.5)
 
         # 主刻度每 5 格标一个数字
-        ax.set_xticks(np.arange(0, W, 5))
-        ax.set_yticks(np.arange(0, H, 5))
+        # ax.set_xticks(np.arange(0, W, 5))
+        # ax.set_yticks(np.arange(0, H, 5))
 
-        ax.set_title("grid check: robot=blue, red_box=red")
-        ax.set_xlabel("col (x)")
-        ax.set_ylabel("row (y)")
+        # ax.set_title("grid check: robot=blue, red_box=red")
+        # ax.set_xlabel("col (x)")
+        # ax.set_ylabel("row (y)")
 
-        plt.savefig("grid_check.png", dpi=120)
-        print(">>> 已导出 grid_check.png")
+        # plt.savefig("grid_check.png", dpi=120)
+        # print(">>> 已导出 grid_check.png")
         exported = True
