@@ -7,6 +7,7 @@ import heapq
 import matplotlib
 matplotlib.use("Agg")          # non-windows plot, use to save files
 import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon as MplPolygon
 from shapely.geometry import Point, Polygon, box
 from collections import deque
 
@@ -37,20 +38,19 @@ def grid_to_world(col, row):
     return ORIGIN[0] + (col + 0.5) * RES, ORIGIN[1] + (row + 0.5) * RES
 
 # -----------RCC8 relation definition ---------------
-def rcc8_relation(a, b):
-    """return the RCC8 basic relation between regions a and b"""
-    if a.disjoint(b):
-        return "DC"          # 相离
-    if a.touches(b):
-        return "EC"          # 外切(仅边界接触)
-    if a.equals(b):
-        return "EQ"          # 相等
-    if a.within(b):
-        # 区分切内含与非切内含:边界是否接触
-        return "TPP" if a.boundary.intersects(b.boundary) else "NTPP"
-    if b.within(a):
-        return "TPPi" if a.boundary.intersects(b.boundary) else "NTPPi"
-    return "PO"              # 部分重叠
+def rcc8_relation_tol(a, b, tol=0.02):
+    """带容差的 RCC8:距离小于 tol 视为 EC,避免离散跳变错过相切"""
+    if a.intersects(b):
+        # 已经相交,细分 PO / 内含
+        if a.equals(b): return "EQ"
+        if a.within(b): return "TPP" if a.boundary.intersects(b.boundary) else "NTPP"
+        if b.within(a): return "TPPi" if a.boundary.intersects(b.boundary) else "NTPPi"
+        if a.touches(b): return "EC"
+        return "PO"
+    # 未相交:看距离是否在容差内
+    if a.distance(b) <= tol:
+        return "EC"          # 足够近,视为刚好接触
+    return "DC"
 
 # ---------- Define region of environment ----------
 DOOR_Y_MIN, DOOR_Y_MAX = -0.15, 0.15   
@@ -62,6 +62,49 @@ REGIONS = {
     "ROOM_RIGHT": box(WALL_X + 0.025, -1.0, 1.0, 1.0),
 }
 
+FORBIDDEN_ZONE1 = Polygon([
+    (-0.80, 0.70),
+    (-0.40, 0.70),
+    (-0.40,  0.40),
+    (-0.80,  0.40),
+])
+FORBIDDEN_ZONE2 = Polygon([
+    (0.40, -0.30),
+    (0.70, -0.30),
+    (0.70, -0.60),
+    (0.40, -0.60),
+])
+FORBIDDEN_ZONES = [FORBIDDEN_ZONE1, FORBIDDEN_ZONE2]
+ROBOT_RADIUS = 0.035   # e-puck 半径约 3.5cm
+#SAFETY_MARGIN = 0.03
+PLAN_RADIUS = ROBOT_RADIUS
+
+def robot_footprint(x, y):
+    """把机器人近似成一个圆形区域"""
+    return Point(x, y).buffer(ROBOT_RADIUS)
+
+def make_box_region(pos, half=0.05):
+    """similar to the function for creating a box region"""
+    return box(pos[0]-half, pos[1]-half, pos[0]+half, pos[1]+half)
+# monitor objects: forbidden zone, door, obstacles
+
+last_relations = {}   # records the RCC8 relations for each object in last time
+
+def monitor_rcc8(robot_fp, targets):
+    """
+    robot_fp: footprint of robot at that time(shapely circle)
+    targets: {name: shapely polygon}
+    return the list of changed relations and update last_relations
+    """
+    changes = []
+    for name, region in targets.items():
+        rel = rcc8_relation_tol(robot_fp, region)
+        if last_relations.get(name) != rel:
+            prev = last_relations.get(name, "None")
+            changes.append((name, prev, rel))
+            last_relations[name] = rel
+    return changes
+
 # ---------- construct regions adjacency graph by using RCC8 relations ----------
 def build_adjacency(regions):
     """Use RCC8 relations to automatically construct region adjacency graph:EC is considered as passable connection"""
@@ -70,7 +113,7 @@ def build_adjacency(regions):
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
-            rel = rcc8_relation(regions[a], regions[b])
+            rel = rcc8_relation_tol(regions[a], regions[b])
             if rel == "EC":          # EC = adjacency = could pass through
                 adj[a].append(b)
                 adj[b].append(a)
@@ -147,7 +190,6 @@ def get_heading():
     return math.atan2(o[3], o[0])
 
 # ---------- function for adding obstacles into grid    
-ROBOT_RADIUS = 0.05
 def add_solid_to_grid(def_name, grid):
     """Mark one Solid obstacle into grid"""
     node = robot.getFromDef(def_name)
@@ -215,6 +257,21 @@ else:
 true_map = np.zeros((H, W))
 add_solid_to_grid("WALL1", true_map)
 add_solid_to_grid("WALL2", true_map)
+
+# ---------------- rasterising forbidden zone ------------
+forbidden_mask = np.zeros((H, W))
+for r in range(H):
+    for c in range(W):
+        wx, wy = grid_to_world(c, r)
+        cell = Point(wx, wy).buffer(PLAN_RADIUS)   # 半径+安全余量
+        # 只要机器人在该格会与禁区相交(非 DC 也非 EC),就禁止进入
+        for zone in FORBIDDEN_ZONES:
+            rel = rcc8_relation_tol(cell, zone)
+            if rel not in ("DC", "EC"):
+                forbidden_mask[r, c] = 1
+                known_map[r, c] = OCCUPIED        # 对 A* 而言同样不可通行
+                break
+print(f"Forbidden rasterising finished, occupied {int(forbidden_mask.sum())} grids")
 
 SENSOR_RANGE = 0.3   # perception radius(meter), around 5 grid cells
 
@@ -284,8 +341,9 @@ def reset_robot(x, y):
 # ------------------------ multi-trial loop ----------------------------
 ep = epuck.getPosition()
 START_X, START_Y = ep[0], ep[1]
-NUM_TRIALS = 3
+NUM_TRIALS = 1
 all_trajectory = [] # to record all trials' trajectory for plotting comparison
+rcc8_log = []
 
 for trial in range(1, NUM_TRIALS + 1):
     print(f"\n>>> Trial {trial} <<<")
@@ -331,6 +389,20 @@ for trial in range(1, NUM_TRIALS + 1):
                     print(f">>> MOVABLE_BOX is not pushable, pass around")
                 judged_objects.add("MOVABLE_BOX")  # mark as judged
                 # waypoints = []          # empty the old exploration path, force replanning towards the target
+
+        # ---- monitor RCC8 relation in real-time ----
+        robot_fp = Point(ep[0], ep[1]).buffer(ROBOT_RADIUS)
+
+        targets = {"DOOR": REGIONS["DOOR"], "FORBIDDEN1": FORBIDDEN_ZONES[0], "FORBIDDEN2": FORBIDDEN_ZONES[1]}
+        mbox = robot.getFromDef("MOVABLE_BOX")
+        if mbox:
+            targets["MOVABLE_BOX"] = make_box_region(mbox.getPosition())
+
+        changes = monitor_rcc8(robot_fp, targets)
+        for name, prev, rel in changes:
+            print(f"[RCC8] robot vs {name}: {prev} -> {rel}  @step {step_count}")
+            rcc8_log.append((step_count, name, prev, rel))   # record for plotting
+
         # ---- try to detect target ----
         if not goal_found:
             detected = try_detect_target(ep[0], ep[1])
@@ -406,35 +478,75 @@ for trial in range(1, NUM_TRIALS + 1):
                             trajectory[i+1][1]-trajectory[i][1])
             for i in range(len(trajectory)-1))
     with open("trial_log.txt", "a") as f:
-        f.write(f"{path_len:.3f}\t{replan_count}\n")
+        f.write(f"path length: {path_len:.3f}\t replan count: {replan_count}\n")
     # print(f">>> Trial {trial}: path {path_len:.2f} m, replanned {replan_count}, memory saved to {MEMORY_PATH}.")
 
+# ---------- plot graph about RCC8 relationships changes with time ----------
+if rcc8_log:
+    # define a "closeness" order for RCC8 relations: DC is farthest, PO/containment is closest
+    REL_ORDER = ["DC", "EC", "PO", "TPP", "NTPP", "TPPi", "NTPPi", "EQ"]
+    rel_to_y = {rel: i for i, rel in enumerate(REL_ORDER)}
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # group by object
+    objects = sorted(set(name for _, name, _, _ in rcc8_log))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(objects)))
+
+    for obj, color in zip(objects, colors):
+        # take out the relationship change points for this object
+        steps = [step for step, name, _, rel in rcc8_log if name == obj]
+        rels  = [rel  for step, name, _, rel in rcc8_log if name == obj]
+        ys = [rel_to_y[r] for r in rels]
+        # steps graph: relationships remain constant between change points
+        ax.step(steps, ys, where="post", marker="o",
+                color=color, linewidth=2, label=obj)
+
+    ax.set_yticks(range(len(REL_ORDER)))
+    ax.set_yticklabels(REL_ORDER)
+    ax.set_xlabel("Simulation step")
+    ax.set_ylabel("RCC8 relation")
+    ax.set_title("Evolution of RCC8 relations over time")
+    ax.grid(True, linestyle=":", alpha=0.5)
+    ax.legend(loc="best", fontsize=9)
+
+    plt.savefig("rcc8_evolution.png", dpi=130, bbox_inches="tight")
+    print(">>> exported rcc8_evolution.png")
+
 # ---------- export grid PNG ----------
-# fig, ax = plt.subplots(figsize=(7, 7))
-# cmap = matplotlib.colors.ListedColormap(["lightgray", "white", "dimgray"]) # three colors for unknown, free, occupied
-# ax.imshow(known_map + 1, origin="lower", cmap=cmap, vmin=0, vmax=2)
-# # robot trajectory(solid line)
-# colors = plt.cm.viridis(np.linspace(0, 1, len(all_trajectory)))
-# for i, traj in enumerate(all_trajectory):
-#     g = [world_to_grid(p[0], p[1]) for p in traj]
-#     ax.plot([p[0] for p in g], [p[1] for p in g],
-#             "-", color=colors[i], linewidth=2, label=f"Trial {i+1}")
-# # grid line for each box
-# ax.set_xticks(np.arange(-0.5, W, 1), minor=True)
-# ax.set_yticks(np.arange(-0.5, H, 1), minor=True)
-# ax.grid(which="minor", color="lightgray", linewidth=0.4)
+fig, ax = plt.subplots(figsize=(7, 7))
+cmap = matplotlib.colors.ListedColormap(["lightgray", "white", "dimgray"]) # three colors for unknown, free, occupied
+ax.imshow(known_map + 1, origin="lower", cmap=cmap, vmin=0, vmax=2)
+# robot trajectory(solid line)
+colors = plt.cm.viridis(np.linspace(0, 1, len(all_trajectory)))
+for i, traj in enumerate(all_trajectory):
+    g = [world_to_grid(p[0], p[1]) for p in traj]
+    ax.plot([p[0] for p in g], [p[1] for p in g],
+            "-", color=colors[i], linewidth=2, label=f"Trial {i+1}")
+# grid line for each box
+ax.set_xticks(np.arange(-0.5, W, 1), minor=True)
+ax.set_yticks(np.arange(-0.5, H, 1), minor=True)
+ax.grid(which="minor", color="lightgray", linewidth=0.4)
 
-# # marked main scaler per 5 boxes
-# ax.set_xticks(np.arange(0, W, 5))
-# ax.set_yticks(np.arange(0, H, 5))
+# marked main scaler per 5 boxes
+ax.set_xticks(np.arange(0, W, 5))
+ax.set_yticks(np.arange(0, H, 5))
 
-# rb = red_box.getPosition()
-# sc, sr = world_to_grid(trajectory[0][0], trajectory[0][1])  # start point
-# gc, gr = world_to_grid(rb[0], rb[1])
-# ax.plot(sc, sr, "go", markersize=10, label="Start")
-# ax.plot(gc, gr, "rs", markersize=10, label="Goal")
+rb = red_box.getPosition()
+sc, sr = world_to_grid(trajectory[0][0], trajectory[0][1])  # start point
+gc, gr = world_to_grid(rb[0], rb[1])
+ax.plot(sc, sr, "go", markersize=10, label="Start")
+ax.plot(gc, gr, "rs", markersize=10, label="Goal")
+# forbidden zone (solid line)
+for i, zone in enumerate(FORBIDDEN_ZONES):
+    zone_world = list(zone.exterior.coords)
+    zone_grid = [world_to_grid(x, y) for x, y in zone_world]
+    ax.add_patch(MplPolygon(zone_grid, closed=True,
+                            facecolor="red", alpha=0.15,
+                            edgecolor="red", linewidth=2.5,
+                            label="Forbidden zone (RCC8)" if i == 0 else None))
 
-# ax.legend(loc="upper left", fontsize=9)
-# ax.set_title("Robot Trajectories in Multi-Trial Exploration")
-# plt.savefig("robot_multi_trial.png", dpi=130, bbox_inches="tight")
-# print(">>> exported robot_multi_trial.png")
+ax.legend(loc="upper right", fontsize=9)
+ax.set_title("Robot Trajectories in Multi-Trial Exploration")
+plt.savefig("robot_multi_trial_with_forbidden_zones.png", dpi=130, bbox_inches="tight")
+print(">>> exported robot_multi_trial_with_forbidden_zones.png")

@@ -76,7 +76,7 @@ def astar(grid, start, goal, return_stats=False):
                 heapq.heappush(open_set, (ng + h(nxt, goal), nxt))
     
     if return_stats:
-        return None, {"expanded nodes", expanded}
+        return None, {"expanded nodes": expanded}
     return None   # 无路
 
 # ---------- 取机器人朝向(绕竖直 z 轴的偏航角) ----------
@@ -102,14 +102,28 @@ def rcc8_relation(a, b):
     return "PO"              # 部分重叠
 
 # ---------- define forbidden zone(logic constraint) ----------
-FORBIDDEN_ZONE = Polygon([
+FORBIDDEN_ZONE_1 = Polygon([
     (0.10, -0.10),
     (0.35, -0.10),
     (0.35,  0.20),
     (0.10,  0.20),
 ])
+FORBIDDEN_ZONE_2 = Polygon([
+    (-0.50, -0.70),
+    (-0.10, -0.70),
+    (-0.10,  -0.20),
+    (-0.50,  -0.20),
+])
+FORBIDDEN_ZONES = [FORBIDDEN_ZONE_1, FORBIDDEN_ZONE_2]
 
 ROBOT_RADIUS = 0.035   # e-puck 半径约 3.5cm
+
+# 规划时额外留的安全余量(米)。
+# 只按 ROBOT_RADIUS 栅格化的话,贴着禁区的格子只剩 0.4mm 余量,
+# 而控制器受 RES/REACH 限制会切角偏出规划线几厘米,必然蹭到禁区。
+# 这个余量只影响规划(把禁区"胀大"一圈),不改变 RCC8 判定本身。
+SAFETY_MARGIN = 0.03
+PLAN_RADIUS = ROBOT_RADIUS + SAFETY_MARGIN
 
 def robot_footprint(x, y):
     """把机器人近似成一个圆形区域"""
@@ -117,23 +131,6 @@ def robot_footprint(x, y):
 
 # ---------- 规划一次 ----------
 grid = np.zeros((H, W))          # 暂时全空地,后面再加障碍
-# ----------import a base obstacle（wall）-------------
-# obstacle = robot.getFromDef("WALL")
-# grid = np.zeros((H,W))
-# ob_pos = obstacle.getPosition() #read the location and size of 'WALL'
-# size_field = obstacle.getField("children").getMFNode(0).getField("geometry").getSFNode().getField("size")
-# ob_size = size_field.getSFVec3f()
-# #coordinate value(x,y,z) correspond respectively to (0,1,2) in the array 
-# half_x, half_y = ob_size[0]/2, ob_size[1]/2 
-# x_min, x_max = ob_pos[0] - half_x, ob_pos[0] + half_x
-# y_min, y_max = ob_pos[1] - half_y, ob_pos[1] + half_y
-# c_min, r_min = world_to_grid(x_min, y_min)
-# c_max, r_max = world_to_grid(x_max, y_max)
-# for r in range(max(0, r_min), min(H, r_max + 1)):
-    # for c in range(max(0, c_min), min(W, c_max + 1)):
-        # grid[r,c] = 1
-# print(f"Centre of obstacle({ob_pos[0]:.2f},{ob_pos[1]:.2f}) Size({ob_size[0]:.2f},{ob_size[1]:.2f})")
-# print(f"Obstacle occupied the grid col[{c_min}~{c_max}] row[{r_min}~{r_max}]")
 
 # ---------------- rasterising forbidden zone ------------
 forbidden_mask = np.zeros((H, W))
@@ -141,13 +138,14 @@ forbidden_mask = np.zeros((H, W))
 for r in range(H):
     for c in range(W):
         wx, wy = grid_to_world(c, r)
-        cell = Point(wx, wy).buffer(ROBOT_RADIUS)
+        cell = Point(wx, wy).buffer(PLAN_RADIUS)   # 半径+安全余量
         # 只要机器人在该格会与禁区相交(非 DC 也非 EC),就禁止进入
-        rel = rcc8_relation(cell, FORBIDDEN_ZONE)
-        if rel not in ("DC", "EC"):
-            forbidden_mask[r, c] = 1
-            grid[r, c] = 1        # 对 A* 而言同样不可通行
-
+        for zone in FORBIDDEN_ZONES:
+            rel = rcc8_relation(cell, zone)
+            if rel not in ("DC", "EC"):
+                forbidden_mask[r, c] = 1
+                grid[r, c] = 1        # 对 A* 而言同样不可通行
+                break
 print(f"Forbidden rasterising finished, occupied {int(forbidden_mask.sum())} grids")
 
 ep = epuck.getPosition()
@@ -155,9 +153,19 @@ rb = red_box.getPosition()
 start = world_to_grid(ep[0], ep[1])
 goal = world_to_grid(rb[0], rb[1])
 
-run_comparison(astar, grid, start, goal, grid_to_world)
+comparison = run_comparison(astar, grid, start, goal, grid_to_world)
 path = astar(grid, start, goal)
 #path = bfs(grid, start, goal)
+
+# BFS 规划的路径:只用来画图对比,机器人仍然按 A* 的航点走
+bfs_path, bfs_stats = bfs(grid, start, goal, return_stats=True)
+if bfs_path is None:
+    print("BFS cannot find the path")
+    bfs_waypoints = []
+else:
+    bfs_waypoints = [grid_to_world(c, r) for (c, r) in bfs_path]
+    print(f"BFS path: {len(bfs_waypoints)} checkpoints, "
+          f"expanded {bfs_stats['expanded nodes']} nodes")
 
 if path is None:
     print("Cannot find the path")
@@ -168,10 +176,14 @@ else:
     print(f"Totally {len(waypoints)} checkpoints through the path")
 
 wp_index = 0
-REACH = 0.06        # 到达航点的距离阈值(米)
+# 必须小于 RES(0.05),否则机器人还没走到航点就切换下一个,会持续切角偏出规划线
+REACH = 0.03        # 到达航点的距离阈值(米)
 GOAL_REACH = 0.08   # 到达终点阈值
 
 trajectory = [] # to record routine that robot has passed
+violations = []  # 记录违反约束的位置和关系,用于在图上标出
+last_relation = [None] * len(FORBIDDEN_ZONES)  # 上一步的关系,用于只在变化时打印
+
 
 # ----------------mainloop --------------------
 while robot.step(timestep) != -1:
@@ -184,9 +196,15 @@ while robot.step(timestep) != -1:
     trajectory.append((ep[0], ep[1]))
     # judge RCC8 relationship between robot and forbidden zone in real-time
     fp = robot_footprint(ep[0], ep[1])
-    rel = rcc8_relation(fp, FORBIDDEN_ZONE)
-    if rel not in ("DC", "EC"):
-        print(f"!!! Violate constraint:relationship between robot and forbidden_zone is {rel}")
+    for i, zone in enumerate(FORBIDDEN_ZONES):
+        rel = rcc8_relation(fp, zone)
+        if rel not in ("DC", "EC"):
+            violations.append((ep[0], ep[1], i + 1, rel))
+            # 只在关系发生变化时打印一次,避免每个时间步刷屏
+            if rel != last_relation[i]:
+                print(f"!!! Violate constraint: relation with zone {i+1} "
+                      f"is {rel} at ({ep[0]:.3f}, {ep[1]:.3f})")
+        last_relation[i] = rel
     tx, ty = waypoints[wp_index]
     dx, dy = tx - ep[0], ty - ep[1]
     dist = math.hypot(dx, dy)
@@ -200,22 +218,50 @@ while robot.step(timestep) != -1:
             fig, ax = plt.subplots(figsize=(8, 8))
 
             # 1. forbidden zone(red boundary)
-            zone_coords = list(FORBIDDEN_ZONE.exterior.coords)
-            ax.add_patch(MplPolygon(zone_coords, closed=True,
-                                    facecolor="red", alpha=0.15,
-                                    edgecolor="red", linewidth=2.5,
-                                    label="Forbidden zone (RCC8)"))
+            for i, zone in enumerate(FORBIDDEN_ZONES):
+                zone_coords = list(zone.exterior.coords)
+                ax.add_patch(MplPolygon(zone_coords, closed=True,
+                                        facecolor="red", alpha=0.15,
+                                        edgecolor="red", linewidth=2.5,
+                                        label="Forbidden zone (RCC8)" if i == 0 else None))
 
-            # 2. A* 规划的路径(虚线)
+            # 1b. 禁区按机器人半径外扩后的边界(点线)
+            # 轨迹画的是机器人中心点,但 RCC8 判定用的是半径 3.5cm 的footprint,
+            # 所以中心只要进入这条虚线内部就已经算 PO 违规——
+            # 这解释了"图上看着没碰到红框,控制台却在报 PO"
+            for i, zone in enumerate(FORBIDDEN_ZONES):
+                infl = list(zone.buffer(ROBOT_RADIUS).exterior.coords)
+                ax.add_patch(MplPolygon(infl, closed=True,
+                                        facecolor="none",
+                                        edgecolor="red", linewidth=1.2,
+                                        linestyle=":",
+                                        label="Zone inflated by robot radius" if i == 0 else None))
+
+            # 2. A* 规划的路径(蓝色虚线)
             wp_x = [p[0] for p in waypoints]
             wp_y = [p[1] for p in waypoints]
             ax.plot(wp_x, wp_y, "b--", linewidth=1.5,
                     marker="o", markersize=4, label="A* planned path")
 
+            # 2b. BFS 规划的路径(橙色点划线),和 A* 叠在同一张图上对比
+            if bfs_waypoints:
+                bfs_x = [p[0] for p in bfs_waypoints]
+                bfs_y = [p[1] for p in bfs_waypoints]
+                ax.plot(bfs_x, bfs_y, color="orange", linestyle="-.",
+                        linewidth=1.5, marker="^", markersize=4,
+                        label="BFS planned path")
+
             # 3. 机器人实际轨迹(实线)
             tr_x = [p[0] for p in trajectory]
             tr_y = [p[1] for p in trajectory]
             ax.plot(tr_x, tr_y, "g-", linewidth=2, label="Actual trajectory")
+
+            # 3b. 违规点(实际发生 PO/TPP 等的位置)
+            if violations:
+                vx = [v[0] for v in violations]
+                vy = [v[1] for v in violations]
+                ax.plot(vx, vy, "rx", markersize=6, linestyle="none",
+                        label=f"Constraint violations ({len(violations)} steps)")
 
             # 4. start and stop points
             ax.plot(tr_x[0], tr_y[0], "go", markersize=12, label="Start")
@@ -227,8 +273,24 @@ while robot.step(timestep) != -1:
             ax.grid(True, linestyle=":", alpha=0.5)
             ax.set_xlabel("x (m)")
             ax.set_ylabel("y (m)")
-            ax.set_title("Constraint-aware path: robot avoids forbidden zone")
+            ax.set_title("A* vs BFS planned paths (robot avoids forbidden zone)")
             ax.legend(loc="upper left", fontsize=9)
+
+            # 5. 对比数据文本框(长度用米,expanded 才是搜索效率指标)
+            stat_lines = []
+            for name in ("A*", "BFS"):
+                r = comparison.get(name)
+                if r and r["path"] is not None:
+                    stat_lines.append(
+                        f"{name}: {r['length_m']:.3f} m | "
+                        f"{r['path_nodes']} nodes | "
+                        f"{r['time']*1000:.2f} ms | "
+                        f"expanded {r['expanded']}")
+            if stat_lines:
+                ax.text(0.98, 0.02, "\n".join(stat_lines),
+                        transform=ax.transAxes, fontsize=9,
+                        ha="right", va="bottom", family="monospace",
+                        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
 
             plt.savefig("avoids_forbiddenZone_path.png", dpi=150, bbox_inches="tight")
             print(">>> exported avoids_forbiddenZone_path.png")
