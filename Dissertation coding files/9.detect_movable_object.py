@@ -226,8 +226,8 @@ def has_push_space(obj_pos, push_dir, known_map):
     probe_x = obj_pos[0] + push_dir[0] * 0.15
     probe_y = obj_pos[1] + push_dir[1] * 0.15
     c, r = world_to_grid(probe_x, probe_y)
-    if not (0 <= c < W and 0 <= r < H): #judge by DC relation
-        return False                    # out of grid, no space to push
+    if not (0 <= c < W and 0 <= r < H): # out of grid, no space to push
+        return False                    
     return known_map[r, c] != OCCUPIED
 
 # --------- fully judgement of movable detection: mass + push space ---------
