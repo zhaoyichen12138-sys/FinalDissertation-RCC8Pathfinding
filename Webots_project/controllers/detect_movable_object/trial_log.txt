@@ -1,47 +1,6 @@
-5.708	64
-2.167	6
-1.485	2
-1.505	2
-0.996	1
-1.499	3
-1.488	3
-1.510	3
-2.480	21
-0.910	7
-5.117	57
-1.100	8
-0.135	2
-6.365	67
-7.289	81
-6.897	76
-7.148	70
-0.000	0
-0.000	0
-9.642	95
-1.987	14
-4.239	17
-2.582	11
-3.197	12
-0.000	0
-2.588	11
-2.325	8
-2.582	5
-0.000	0
-9.584	91
-1.961	11
-2.558	15
-2.156	8
-1.471	2
-1.471	2
-0.229	1
-1.437	2
-path length: 9.991	 replan count: 97
-path length: 1.929	 replan count: 11
-path length: 2.496	 replan count: 15
-path length: 8.390	 replan count: 85
-path length: 9.557	 replan count: 131
-path length: 8.390	 replan count: 85
-path length: 1.879	 replan count: 12
 path length: 8.390	 replan count: 85
 path length: 1.929	 replan count: 12
-path length: 8.390	 replan count: 85
+path length: 2.211	 replan count: 14
+path length: 3.609	 replan count: 13
+path length: 1.451	 replan count: 2
+path length: 1.429	 replan count: 2

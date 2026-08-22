@@ -237,19 +237,19 @@ while robot.step(timestep) != -1:
                                         linestyle=":",
                                         label="Zone inflated by robot radius" if i == 0 else None))
 
-            # 2. A* 规划的路径(蓝色虚线)
-            wp_x = [p[0] for p in waypoints]
-            wp_y = [p[1] for p in waypoints]
-            ax.plot(wp_x, wp_y, "b--", linewidth=1.5,
-                    marker="o", markersize=4, label="A* planned path")
+            # # 2. A* 规划的路径(蓝色虚线)
+            # wp_x = [p[0] for p in waypoints]
+            # wp_y = [p[1] for p in waypoints]
+            # ax.plot(wp_x, wp_y, "b--", linewidth=1.5,
+            #         marker="o", markersize=4, label="A* planned path")
 
-            # 2b. BFS 规划的路径(橙色点划线),和 A* 叠在同一张图上对比
-            if bfs_waypoints:
-                bfs_x = [p[0] for p in bfs_waypoints]
-                bfs_y = [p[1] for p in bfs_waypoints]
-                ax.plot(bfs_x, bfs_y, color="orange", linestyle="-.",
-                        linewidth=1.5, marker="^", markersize=4,
-                        label="BFS planned path")
+            # # 2b. BFS 规划的路径(橙色点划线),和 A* 叠在同一张图上对比
+            # if bfs_waypoints:
+            #     bfs_x = [p[0] for p in bfs_waypoints]
+            #     bfs_y = [p[1] for p in bfs_waypoints]
+            #     ax.plot(bfs_x, bfs_y, color="orange", linestyle="-.",
+            #             linewidth=1.5, marker="^", markersize=4,
+            #             label="BFS planned path")
 
             # 3. 机器人实际轨迹(实线)
             tr_x = [p[0] for p in trajectory]
@@ -273,24 +273,24 @@ while robot.step(timestep) != -1:
             ax.grid(True, linestyle=":", alpha=0.5)
             ax.set_xlabel("x (m)")
             ax.set_ylabel("y (m)")
-            ax.set_title("A* vs BFS planned paths (robot avoids forbidden zone)")
+            ax.set_title("Robot avoids forbidden zone")
             ax.legend(loc="upper left", fontsize=9)
 
             # 5. 对比数据文本框(长度用米,expanded 才是搜索效率指标)
-            stat_lines = []
-            for name in ("A*", "BFS"):
-                r = comparison.get(name)
-                if r and r["path"] is not None:
-                    stat_lines.append(
-                        f"{name}: {r['length_m']:.3f} m | "
-                        f"{r['path_nodes']} nodes | "
-                        f"{r['time']*1000:.2f} ms | "
-                        f"expanded {r['expanded']}")
-            if stat_lines:
-                ax.text(0.98, 0.02, "\n".join(stat_lines),
-                        transform=ax.transAxes, fontsize=9,
-                        ha="right", va="bottom", family="monospace",
-                        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
+            # stat_lines = []
+            # for name in ("A*", "BFS"):
+            #     r = comparison.get(name)
+            #     if r and r["path"] is not None:
+            #         stat_lines.append(
+            #             f"{name}: {r['length_m']:.3f} m | "
+            #             f"{r['path_nodes']} nodes | "
+            #             f"{r['time']*1000:.2f} ms | "
+            #             f"expanded {r['expanded']}")
+            # if stat_lines:
+            #     ax.text(0.98, 0.02, "\n".join(stat_lines),
+            #             transform=ax.transAxes, fontsize=9,
+            #             ha="right", va="bottom", family="monospace",
+            #             bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
 
             plt.savefig("avoids_forbiddenZone_path.png", dpi=150, bbox_inches="tight")
             print(">>> exported avoids_forbiddenZone_path.png")

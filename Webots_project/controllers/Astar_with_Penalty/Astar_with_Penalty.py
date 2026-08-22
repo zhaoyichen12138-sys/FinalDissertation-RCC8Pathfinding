@@ -256,7 +256,7 @@ def planning_map(known_map, forbidden_mask=None, temp_obstacle=None):
         m[temp_obstacle == 1] = OCCUPIED
     return m
 
-PUSH_PENALTY = 0 # extra cost for pushing a movable object(means more 15 grid cells)
+PUSH_PENALTY = 3 # extra cost for pushing a movable object(means more 15 grid cells)
 cost_map = np.zeros((H, W)) # cost map for A* planning, default 0 for free space
 
 # ---------- robot pathfinding plan ----------
@@ -414,9 +414,9 @@ for trial in range(1, NUM_TRIALS + 1):
                             temp_obstacle[rr, cc] = 1 
                     print(f">>> MOVABLE_BOX is not pushable, pass around")
                 judged_objects.add("MOVABLE_BOX")  # mark as judged
-                print(f"path length (cells) = {len(new_path)}")
-                passes_box = any(cost_map[r, c] > 0 for (c, r) in new_path)
-                print(f"path passes through box (push it?) {passes_box}")
+                # print(f"path length (cells) = {len(new_path)}")
+                # passes_box = any(cost_map[r, c] > 0 for (c, r) in new_path)
+                # print(f"path passes through box (push it?) {passes_box}")
                 waypoints = []          # empty the old exploration path, force replanning towards the target
         # ---- monitor RCC8 relation in real-time ----
         robot_fp = Point(ep[0], ep[1]).buffer(ROBOT_RADIUS)
@@ -464,6 +464,14 @@ for trial in range(1, NUM_TRIALS + 1):
                 waypoints = [grid_to_world(c, r) for (c, r) in new_path]
                 wp_index = 1 if len(waypoints) > 1 else 0
                 replan_count += 1
+                # --- penalty decision statistics ---
+                if "MOVABLE_BOX" in judged_objects and goal_found:
+                    n = sum(1 for (c, r) in new_path if cost_map[r, c] > 0)
+                    decision = "PUSH" if n > 0 else "DETOUR"
+                    L = sum(math.hypot(new_path[i+1][0]-new_path[i][0],new_path[i+1][1]-new_path[i][1])
+                            for i in range(len(new_path)-1))
+                    print(f"[penalty={PUSH_PENALTY}] cells={len(new_path)},"
+                          f"geometric length={L:.2f}, n={n}, decision={decision}")
 
         # ---- judge whether goal is reached ----
         if goal_found:
@@ -509,16 +517,38 @@ for trial in range(1, NUM_TRIALS + 1):
         f.write(f"path length: {path_len:.3f}\t replan count: {replan_count}\n")
     print(f">>> Trial {trial}: path {path_len:.2f} m, replanned {replan_count}, memory saved to {MEMORY_PATH}.")
 
+# ---- Plan twice with different penalties for comparison ----
+def plan_with_penalty(P):
+    cm = np.zeros((H, W))
+    for rr in range(max(0, r_min), min(H, r_max + 1)):
+        for cc in range(max(0, c_min), min(W, c_max + 1)):
+            cm[rr, cc] = P
+    p = astar(planning_map(known_map), start, goal, cm)
+    L = sum(math.hypot(p[i+1][0]-p[i][0], p[i+1][1]-p[i][1])
+            for i in range(len(p)-1))
+    n = sum(1 for (c, r) in p if cm[r, c] > 0)
+    return p, L, n
+
+path_lo, L_lo, n_lo = plan_with_penalty(3.0)
+path_hi, L_hi, n_hi = plan_with_penalty(3.5)
+print(f"P=3.0: length={L_lo:.2f}, n={n_lo}")
+print(f"P=3.5: length={L_hi:.2f}, n={n_hi}")
+
 # ---------- export grid PNG ----------
 fig, ax = plt.subplots(figsize=(7, 7))
 cmap = matplotlib.colors.ListedColormap(["lightgray", "white", "dimgray"]) # three colors for unknown, free, occupied
 ax.imshow(known_map + 1, origin="lower", cmap=cmap, vmin=0, vmax=2)
 # robot trajectory(solid line)
 colors = plt.cm.viridis(np.linspace(0, 1, len(all_trajectory)))
-for i, traj in enumerate(all_trajectory):
-    g = [world_to_grid(p[0], p[1]) for p in traj]
-    ax.plot([p[0] for p in g], [p[1] for p in g],
-            "-", color=colors[i], linewidth=2, label=f"Trial {i+1}")
+# for i, traj in enumerate(all_trajectory):
+#     g = [world_to_grid(p[0], p[1]) for p in traj]
+#     ax.plot([p[0] for p in g], [p[1] for p in g],
+#             "-", color=colors[i], linewidth=2, label=f"Trial {i+1}")
+for p, col, ls, lab in [
+        (path_lo, "#1f4e79", "-",  f"$Penalty = 3.0$  (push, $L$ = {L_lo:.1f})"),
+        (path_hi, "#c00000", "--", f"$Penalty = 3.5$  (detour, $L$ = {L_hi:.1f})")]:
+    ax.plot([c for (c, r) in p], [r for (c, r) in p],
+            ls, color=col, linewidth=2, label=lab)
 # grid line for each box
 ax.set_xticks(np.arange(-0.5, W, 1), minor=True)
 ax.set_yticks(np.arange(-0.5, H, 1), minor=True)
@@ -544,9 +574,6 @@ ax.add_patch(MplPolygon(mb_corners_grid, closed=True,
                         label="Door"))
 ax.plot(sc, sr, "go", markersize=10, label="Start")
 ax.plot(gc, gr, "rs", markersize=10, label="Goal")
-ax.text(0.98, 0.02, f"penalty={PUSH_PENALTY}", fontsize=9, 
-        transform=ax.transAxes, ha="right", va="bottom", color="black",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
 # forbidden zone (solid line)
 for i, zone in enumerate(FORBIDDEN_ZONES):
     zone_world = list(zone.exterior.coords)
@@ -555,8 +582,16 @@ for i, zone in enumerate(FORBIDDEN_ZONES):
                             facecolor="red", alpha=0.15,
                             edgecolor="red", linewidth=2.5,
                             label="Forbidden zone (RCC8)" if i == 0 else None))
-
+for i, zone in enumerate(FORBIDDEN_ZONES):
+    infl = list(zone.buffer(ROBOT_RADIUS).exterior.coords)
+    infl_grid = [world_to_grid(x, y) for x, y in infl]
+    ax.add_patch(MplPolygon(infl_grid, closed=True,
+                            facecolor="none",
+                            edgecolor="red", linewidth=1.2,
+                            linestyle=":",
+                            label="Zone inflated by robot radius" if i == 0 else None))
+                            
 ax.legend(loc="upper left", fontsize=9)
-ax.set_title("A* algorithm with Penalty")
+ax.set_title("Decision making with Penalty")
 plt.savefig("robot_astar_with_penalty.png", dpi=130, bbox_inches="tight")
 print(">>> exported robot_astar_with_penalty.png")

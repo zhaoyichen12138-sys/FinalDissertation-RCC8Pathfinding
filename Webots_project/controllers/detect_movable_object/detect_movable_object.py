@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon
 from shapely.geometry import Point, Polygon, box
 from collections import deque
+import itertools
 
 robot = Supervisor()
 timestep = int(robot.getBasicTimeStep())
@@ -226,8 +227,8 @@ def has_push_space(obj_pos, push_dir, known_map):
     probe_x = obj_pos[0] + push_dir[0] * 0.15
     probe_y = obj_pos[1] + push_dir[1] * 0.15
     c, r = world_to_grid(probe_x, probe_y)
-    if not (0 <= c < W and 0 <= r < H): #judge by DC relation
-        return False                    # out of grid, no space to push
+    if not (0 <= c < W and 0 <= r < H): # out of grid, no space to push
+        return False                    
     return known_map[r, c] != OCCUPIED
 
 # --------- fully judgement of movable detection: mass + push space ---------
@@ -341,7 +342,7 @@ def reset_robot(x, y):
 # ------------------------ multi-trial loop ----------------------------
 ep = epuck.getPosition()
 START_X, START_Y = ep[0], ep[1]
-NUM_TRIALS = 1
+NUM_TRIALS = 6
 all_trajectory = [] # to record all trials' trajectory for plotting comparison
 rcc8_log = []
 
@@ -545,8 +546,22 @@ for i, zone in enumerate(FORBIDDEN_ZONES):
                             facecolor="red", alpha=0.15,
                             edgecolor="red", linewidth=2.5,
                             label="Forbidden zone (RCC8)" if i == 0 else None))
+for i, zone in enumerate(FORBIDDEN_ZONES):
+    infl = list(zone.buffer(ROBOT_RADIUS).exterior.coords)
+    infl_grid = [world_to_grid(x, y) for x, y in infl]
+    ax.add_patch(MplPolygon(infl_grid, closed=True,
+                            facecolor="none",
+                            edgecolor="red", linewidth=1.2,
+                            linestyle=":",
+                            label="Zone inflated by robot radius" if i == 0 else None))
+def flip(items, ncol):
+    return list(itertools.chain(*[items[i::ncol] for i in range(ncol)]))
 
-ax.legend(loc="upper right", fontsize=9)
+handles, labels = ax.get_legend_handles_labels()
+ncol = 2
+ax.legend(flip(handles, ncol), flip(labels, ncol), loc="upper left",
+          fontsize=8, ncol=ncol, columnspacing=1.0, handletextpad=0.5,
+          handlelength=1.5, labelspacing=0.4)
 ax.set_title("Robot Trajectories in Multi-Trial Exploration")
 plt.savefig("robot_multi_trial_with_forbidden_zones.png", dpi=130, bbox_inches="tight")
 print(">>> exported robot_multi_trial_with_forbidden_zones.png")
