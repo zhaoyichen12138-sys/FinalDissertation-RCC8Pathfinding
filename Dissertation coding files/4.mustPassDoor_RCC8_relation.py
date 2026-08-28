@@ -1,10 +1,10 @@
-"""navigator: A* 规划 + e-puck 差速轮控制,走到红盒子"""
+"""plan the spatial relations on topological layer first, then plan the path using A* on metric layer"""
 from controller import Supervisor
 import numpy as np
 import math
 import heapq
 import matplotlib
-matplotlib.use("Agg")          # 无窗口后台绘图,存文件用
+matplotlib.use("Agg")         
 import matplotlib.pyplot as plt
 from shapely.geometry import Point, Polygon, box
 from collections import deque
@@ -15,7 +15,7 @@ timestep = int(robot.getBasicTimeStep())
 epuck = robot.getFromDef("EPUCK")
 red_box = robot.getFromDef("RED_BOX")
 
-# 拿到两个轮子电机,设成速度控制模式
+# get two wheel motors, set to velocity control mode
 left = robot.getDevice("left wheel motor")
 right = robot.getDevice("right wheel motor")
 left.setPosition(float("inf"))
@@ -23,9 +23,9 @@ right.setPosition(float("inf"))
 left.setVelocity(0.0)
 right.setVelocity(0.0)
 
-MAX_SPEED = 6.28   # e-puck 电机上限约 6.28 rad/s
+MAX_SPEED = 6.28   
 
-# ---------- 栅格参数(和上一步一致) ----------
+# ---------- Grid Parameters ----------
 RES = 0.05
 ORIGIN = (-1.0, -1.0)
 W, H = 40, 40
@@ -38,19 +38,17 @@ def grid_to_world(col, row):
 
 # -----------RCC8 relation definition ---------------
 def rcc8_relation(a, b):
-    """返回区域 a 与区域 b 的 RCC8 基本关系"""
     if a.disjoint(b):
-        return "DC"          # 相离
+        return "DC"          
     if a.touches(b):
-        return "EC"          # 外切(仅边界接触)
+        return "EC"          
     if a.equals(b):
-        return "EQ"          # 相等
+        return "EQ"          
     if a.within(b):
-        # 区分切内含与非切内含:边界是否接触
         return "TPP" if a.boundary.intersects(b.boundary) else "NTPP"
     if b.within(a):
         return "TPPi" if a.boundary.intersects(b.boundary) else "NTPPi"
-    return "PO"              # 部分重叠
+    return "PO"              
 
 # ---------- Define region of environment ----------
 DOOR_Y_MIN, DOOR_Y_MAX = -0.15, 0.15   
@@ -108,13 +106,13 @@ def topological_plan(start_region, goal_region, adj):
 
 # ---------- A* ----------
 def astar(grid, start, goal):
-    # grid: H×W, 0=可走 1=障碍; start/goal 是 (col,row)
+    # grid: H×W, 0=traversable, 1=obstacle; start/goal is (col, row)
     def h(a, b):
         return math.hypot(a[0]-b[0], a[1]-b[1])
     open_set = [(0, start)]
     came = {}
     g = {start: 0}
-    # 8 邻域
+    # 8 neighborhood
     nbrs = [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
     expanded = 0 # to show difference between astar and bfs searching
     while open_set:
@@ -140,16 +138,16 @@ def astar(grid, start, goal):
                 g[nxt] = ng
                 came[nxt] = cur
                 heapq.heappush(open_set, (ng + h(nxt, goal), nxt))
-    return None   # 无路
+    return None   
 
-# ---------- obtain robot heading direction(绕竖直 z 轴的偏航角)----------
+# ---------- obtain robot heading direction----------
 def get_heading():
-    o = epuck.getOrientation()   # 3x3 旋转矩阵,行主序 9 个数
-    # 机器人前方在世界坐标的投影,取 x-y 平面上的角度
+    o = epuck.getOrientation()   # 3x3 rotation matrix, row-major 9 elements
+    # projection of robot forward direction in world coordinates, get the angle on x-y plane
     return math.atan2(o[3], o[0])
 
 # ---------- function for adding obstacles into grid    
-ROBOT_RADIUS = 0.035  # e-puck 半径约 3.5cm
+ROBOT_RADIUS = 0.035 
 def add_solid_to_grid(def_name, grid):
     """Mark one Solid obstacle into grid"""
     node = robot.getFromDef(def_name)
@@ -168,7 +166,7 @@ def add_solid_to_grid(def_name, grid):
             grid[r, c] = 1
     # print(f"{def_name}: occupied col[{c_min}~{c_max}] row[{r_min}~{r_max}]")
 
-# ---------- 规划一次 ----------
+# ---------- planning ----------
 grid = np.zeros((H, W))          
 #import a base obstacle（wall）
 add_solid_to_grid("WALL1", grid)
@@ -190,13 +188,13 @@ print(f"Start in {start_region}, goal in {goal_region}")
 region_seq = topological_plan(start_region, goal_region, ADJACENCY)
 print("Topological plan:", " -> ".join(region_seq))
 
-# 构造度量层的途经点序列:起点 -> 各中间区域质心 -> 终点
+# start -> mass point of each region -> goal
 metric_targets = [(ep[0], ep[1])]
-for rname in region_seq[1:-1]:                    # 中间经过的区域(这里就是 DOOR)
+for rname in region_seq[1:-1]:                    # pass region(DOOR here)
     metric_targets.append(region_transition_point(rname, REGIONS))
 metric_targets.append((rb[0], rb[1]))
 
-# 分段 A*,拼成完整路径
+# segmented A*, get together for completing routine
 full_path = []
 for i in range(len(metric_targets) - 1):
     s = world_to_grid(*metric_targets[i])
@@ -207,7 +205,7 @@ for i in range(len(metric_targets) - 1):
         full_path = None
         break
     if full_path:
-        seg = seg[1:]        # 去掉重复的接合点
+        seg = seg[1:]        # delete duplicate waypoints
     full_path.extend(seg)
 
 if full_path is None:
@@ -217,8 +215,8 @@ else:
     print(f"Totally {len(waypoints)} checkpoints through the path")
 
 wp_index = 0
-REACH = 0.06        # 到达航点的距离阈值(米)
-GOAL_REACH = 0.08   # 到达终点阈值
+REACH = 0.06        
+GOAL_REACH = 0.08   
 trajectory = [] # to record routine that robot has passed
 
 while robot.step(timestep) != -1:
@@ -233,7 +231,6 @@ while robot.step(timestep) != -1:
     dx, dy = tx - ep[0], ty - ep[1]
     dist = math.hypot(dx, dy)
 
-    # 到达当前航点,切下一个
     if dist < REACH:
         wp_index += 1
         if wp_index >= len(waypoints):
@@ -242,13 +239,13 @@ while robot.step(timestep) != -1:
             fig, ax = plt.subplots(figsize=(7, 7))
             cmap = matplotlib.colors.ListedColormap(["white", "dimgray"])
             ax.imshow(grid, origin="lower", cmap=cmap, vmin=0, vmax=1)
-            # 2. A* 规划的路径(虚线)
+            # 2. trajectory of A* planned path(dashed)
             wp_grid = [world_to_grid(p[0], p[1]) for p in waypoints]
             wp_x = [g[0] for g in wp_grid]
             wp_y = [g[1] for g in wp_grid]
             ax.plot(wp_x, wp_y, "b--", linewidth=1.5,
                     marker="o", markersize=4, label="A* planned path")
-            # 3. 机器人实际轨迹(实线)
+            # 3. actual robot trajectory(solid line)
             tr_grid = [world_to_grid(p[0], p[1]) for p in trajectory]
             tr_x = [g[0] for g in tr_grid]
             tr_y = [g[1] for g in tr_grid]
@@ -277,21 +274,20 @@ while robot.step(timestep) != -1:
             print(">>> exported pass_door_routine.png")
         continue
 
-    # 计算需要的转向:目标方向 - 当前朝向
+    # calculate the required turning angle: target direction - current heading
     target_angle = math.atan2(dy, dx)
     heading = get_heading()
     err = target_angle - heading
-    # 归一化到 [-pi, pi]
+    # normalize to [-pi, pi]
     err = math.atan2(math.sin(err), math.cos(err))
 
-    # 简单控制:朝向偏差大就原地转,偏差小就直行
+    # easy control: rotate when heading deviation is large, go straight when deviation is small
     if abs(err) > 0.3:
-        #print(f"转向中 heading={heading:.2f} target={target_angle:.2f} err={err:.2f}")
         turn = 2.0 if err > 0 else -2.0
         left.setVelocity(-turn)
         right.setVelocity(turn)
     else:
-        # 直行 + 轻微修正
+        # go straight + slight correction
         base = 0.5 * MAX_SPEED
         corr = 2.0 * err
         left.setVelocity(base - corr)

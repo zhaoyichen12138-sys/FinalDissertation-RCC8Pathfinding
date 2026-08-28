@@ -172,10 +172,10 @@ def smooth_path(grid, path): # smoother path
         i = j
     return result
 
-# ---------- obtain robot heading direction(绕竖直 z 轴的偏航角)----------
+# ---------- obtain robot heading direction----------
 def get_heading():
-    o = epuck.getOrientation()   # 3x3 旋转矩阵,行主序 9 个数
-    # 机器人前方在世界坐标的投影,取 x-y 平面上的角度
+    o = epuck.getOrientation()   # 3x3 rotation matrix, row-major order 9 numbers
+    # projection of the robot's front direction on the world coordinate system, take the angle on the x-y plane
     return math.atan2(o[3], o[0])
 
 # ---------- function for adding obstacles into grid    

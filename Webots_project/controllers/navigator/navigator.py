@@ -1,4 +1,4 @@
-"""navigator: A* 规划 + e-puck 差速轮控制,走到红盒子"""
+"""navigator: A* planning + e-puck differential drive control, to reach the red box and compare with BFS"""
 from controller import Supervisor
 from bfs_pathfinding import bfs, run_comparison
 import numpy as np
@@ -11,7 +11,7 @@ timestep = int(robot.getBasicTimeStep())
 epuck = robot.getFromDef("EPUCK")
 red_box = robot.getFromDef("RED_BOX")
 
-# 拿到两个轮子电机,设成速度控制模式
+# get two wheel motors, set to velocity control mode
 left = robot.getDevice("left wheel motor")
 right = robot.getDevice("right wheel motor")
 left.setPosition(float("inf"))
@@ -19,9 +19,9 @@ right.setPosition(float("inf"))
 left.setVelocity(0.0)
 right.setVelocity(0.0)
 
-MAX_SPEED = 6.28   # e-puck 电机上限约 6.28 rad/s
+MAX_SPEED = 6.28   
 
-# ---------- 栅格参数(和上一步一致) ----------
+# ---------- Grid parameters ----------
 RES = 0.05
 ORIGIN = (-1.0, -1.0)
 W, H = 40, 40
@@ -34,7 +34,7 @@ def grid_to_world(col, row):
 
 # ---------- A* ----------
 def astar(grid, start, goal, return_stats=False):
-    # grid: H×W, 0=可走 1=障碍; start/goal 是 (col,row)
+    # grid: H×W, 0=traversable, 1=obstacle; start/goal is (col,row)
     def h(a, b):
         return math.hypot(a[0]-b[0], a[1]-b[1])
     open_set = [(0, start)]
@@ -72,16 +72,16 @@ def astar(grid, start, goal, return_stats=False):
     
     if return_stats:
         return None, {"expanded nodes", expanded}
-    return None   # 无路
+    return None   
 
-# ---------- 取机器人朝向(绕竖直 z 轴的偏航角) ----------
+# ---------- get robot heading ----------
 def get_heading():
-    o = epuck.getOrientation()   # 3x3 旋转矩阵,行主序 9 个数
-    # 机器人前方在世界坐标的投影,取 x-y 平面上的角度
+    o = epuck.getOrientation()   # 3x3 rotation matrix, row-major 9 elements
+    # project the robot's front direction onto the world coordinate system, take the angle on the x-y plane
     return math.atan2(o[3], o[0])
 
-# ---------- 规划一次 ----------
-grid = np.zeros((H, W))          # 暂时全空地,后面再加障碍
+# ---------- path planning ----------
+grid = np.zeros((H, W))          
 #import a base obstacle（wall）
 obstacle = robot.getFromDef("WALL")
 grid = np.zeros((H,W))
@@ -107,19 +107,18 @@ goal = world_to_grid(rb[0], rb[1])
 
 run_comparison(astar, grid, start, goal, grid_to_world)
 path = astar(grid, start, goal)
-#path = bfs(grid, start, goal)
 
 if path is None:
     print("Cannot find the path")
     waypoints = []
 else:
-    # 把栅格路径转成世界坐标航点
+    # transform the grid path to world coordinates waypoints
     waypoints = [grid_to_world(c, r) for (c, r) in path]
     print(f"Totally {len(waypoints)} checkpoints through the path")
 
 wp_index = 0
-REACH = 0.06        # 到达航点的距离阈值(米)
-GOAL_REACH = 0.08   # 到达终点阈值
+REACH = 0.06        # threshold to reach a waypoint (meters)
+GOAL_REACH = 0.08   # threshold to reach the goal (meters)
 
 while robot.step(timestep) != -1:
     if not waypoints or wp_index >= len(waypoints):
@@ -132,28 +131,28 @@ while robot.step(timestep) != -1:
     dx, dy = tx - ep[0], ty - ep[1]
     dist = math.hypot(dx, dy)
 
-    # 到达当前航点,切下一个
+    # arrive at current waypoint, move to the next
     if dist < REACH:
         wp_index += 1
         if wp_index >= len(waypoints):
             print(">>> Arrived Red_Box nearby")
         continue
 
-    # 计算需要的转向:目标方向 - 当前朝向
+    # calculate the required turn: target direction - current heading
     target_angle = math.atan2(dy, dx)
     heading = get_heading()
     err = target_angle - heading
-    # 归一化到 [-pi, pi]
+    # normalize to [-pi, pi]
     err = math.atan2(math.sin(err), math.cos(err))
 
-    # 简单控制:朝向偏差大就原地转,偏差小就直行
+    # easy control: rotate if heading deviation is large, otherwise go straight
     if abs(err) > 0.3:
         #print(f"转向中 heading={heading:.2f} target={target_angle:.2f} err={err:.2f}")
         turn = 2.0 if err > 0 else -2.0
         left.setVelocity(-turn)
         right.setVelocity(turn)
     else:
-        # 直行 + 轻微修正
+        # go straight + revise lightly
         base = 0.5 * MAX_SPEED
         corr = 2.0 * err
         left.setVelocity(base - corr)

@@ -1,10 +1,9 @@
-"""navigator: A* 规划 + e-puck 差速轮控制,走到红盒子"""
 from controller import Supervisor
 import numpy as np
 import math
 import heapq
 import matplotlib
-matplotlib.use("Agg")          # 无窗口后台绘图,存文件用
+matplotlib.use("Agg")         
 import matplotlib.pyplot as plt
 from shapely.geometry import Point, Polygon, box
 from collections import deque
@@ -15,7 +14,7 @@ timestep = int(robot.getBasicTimeStep())
 epuck = robot.getFromDef("EPUCK")
 red_box = robot.getFromDef("RED_BOX")
 
-# 拿到两个轮子电机,设成速度控制模式
+# get two wheel motors, set to velocity control mode
 left = robot.getDevice("left wheel motor")
 right = robot.getDevice("right wheel motor")
 left.setPosition(float("inf"))
@@ -23,9 +22,9 @@ right.setPosition(float("inf"))
 left.setVelocity(0.0)
 right.setVelocity(0.0)
 
-MAX_SPEED = 6.28   # e-puck 电机上限约 6.28 rad/s
+MAX_SPEED = 6.28   
 
-# ---------- 栅格参数(和上一步一致) ----------
+# ---------- Grid parameters ----------
 RES = 0.05
 ORIGIN = (-1.0, -1.0)
 W, H = 40, 40
@@ -38,19 +37,18 @@ def grid_to_world(col, row):
 
 # -----------RCC8 relation definition ---------------
 def rcc8_relation(a, b):
-    """返回区域 a 与区域 b 的 RCC8 基本关系"""
+    """return the RCC8 basic relation between regions a and b"""
     if a.disjoint(b):
-        return "DC"          # 相离
+        return "DC"          
     if a.touches(b):
-        return "EC"          # 外切(仅边界接触)
+        return "EC"          
     if a.equals(b):
-        return "EQ"          # 相等
+        return "EQ"          
     if a.within(b):
-        # 区分切内含与非切内含:边界是否接触
         return "TPP" if a.boundary.intersects(b.boundary) else "NTPP"
     if b.within(a):
         return "TPPi" if a.boundary.intersects(b.boundary) else "NTPPi"
-    return "PO"              # 部分重叠
+    return "PO"              #overlap
 
 # ---------- Define region of environment ----------
 DOOR_Y_MIN, DOOR_Y_MAX = -0.15, 0.15   
@@ -108,13 +106,13 @@ def topological_plan(start_region, goal_region, adj):
 
 # ---------- A* ----------
 def astar(grid, start, goal):
-    # grid: H×W, 0=可走 1=障碍; start/goal 是 (col,row)
+    # grid: H×W, 0=traversable 1=obstacle; start/goal is (col,row)
     def h(a, b):
         return math.hypot(a[0]-b[0], a[1]-b[1])
     open_set = [(0, start)]
     came = {}
     g = {start: 0}
-    # 8 邻域
+    # 8 neighbors: 4 cardinal + 4 diagonal
     nbrs = [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
     while open_set:
         _, cur = heapq.heappop(open_set)
@@ -138,16 +136,16 @@ def astar(grid, start, goal):
                 g[nxt] = ng
                 came[nxt] = cur
                 heapq.heappush(open_set, (ng + h(nxt, goal), nxt))
-    return None   # 无路
+    return None   
 
-# ---------- obtain robot heading direction(绕竖直 z 轴的偏航角)----------
+# ---------- obtain robot heading direction----------
 def get_heading():
-    o = epuck.getOrientation()   # 3x3 旋转矩阵,行主序 9 个数
-    # 机器人前方在世界坐标的投影,取 x-y 平面上的角度
+    o = epuck.getOrientation()   # 3x3 rotation matrix, row-major order 9 numbers
+    # projection of the robot's front direction on the world coordinate system, take the angle on the x-y plane
     return math.atan2(o[3], o[0])
 
 # ---------- function for adding obstacles into grid    
-ROBOT_RADIUS = 0.035  # e-puck 半径约 3.5cm
+ROBOT_RADIUS = 0.035  # e-puck radius about 3.5cm
 def add_solid_to_grid(def_name, grid):
     """Mark one Solid obstacle into grid"""
     node = robot.getFromDef(def_name)
@@ -166,7 +164,7 @@ def add_solid_to_grid(def_name, grid):
             grid[r, c] = 1
     # print(f"{def_name}: occupied col[{c_min}~{c_max}] row[{r_min}~{r_max}]")
 
-# ---------- 规划一次 ----------
+# ---------- plan once ----------
 UNKNOWN, FREE, OCCUPIED = -1, 0, 1
 known_map = np.full((H, W), UNKNOWN)   # robot known map, initial all unknown(updating with exploration)
 
@@ -329,7 +327,7 @@ ax.imshow(known_map + 1, origin="lower", cmap=cmap, vmin=0, vmax=2)
 # wp_y = [g[1] for g in wp_grid]
 # ax.plot(wp_x, wp_y, "b--", linewidth=1.5,
 #         marker="o", markersize=4, label="A* planned trajectory")
-# 3. robot actual trajectory(实线)
+# 3. robot actual trajectory
 tr_grid = [world_to_grid(p[0], p[1]) for p in trajectory]
 tr_x = [g[0] for g in tr_grid]
 tr_y = [g[1] for g in tr_grid]

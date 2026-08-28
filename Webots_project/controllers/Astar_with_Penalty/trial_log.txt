@@ -55,3 +55,7 @@ path length: 1.447	 replan count: 2
 path length: 1.447	 replan count: 2
 path length: 1.447	 replan count: 2
 path length: 1.447	 replan count: 2
+path length: 0.187	 replan count: 1
+path length: 1.447	 replan count: 2
+path length: 1.447	 replan count: 2
+path length: 2.040	 replan count: 2

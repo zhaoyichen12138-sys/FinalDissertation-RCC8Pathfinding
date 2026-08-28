@@ -256,7 +256,7 @@ def planning_map(known_map, forbidden_mask=None, temp_obstacle=None):
         m[temp_obstacle == 1] = OCCUPIED
     return m
 
-PUSH_PENALTY = 3 # extra cost for pushing a movable object(means more 15 grid cells)
+PUSH_PENALTY = 4 # extra cost for pushing a movable object(means more 15 grid cells)
 cost_map = np.zeros((H, W)) # cost map for A* planning, default 0 for free space
 
 # ---------- robot pathfinding plan ----------

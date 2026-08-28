@@ -1,4 +1,3 @@
-"""local perception with memory: the robot can remember the known map and update it with new perception, and do A* planning on the known map"""
 from controller import Supervisor
 import os
 import numpy as np
@@ -40,17 +39,14 @@ def grid_to_world(col, row):
 
 # -----------RCC8 relation definition ---------------
 def rcc8_relation_tol(a, b, tol=0.02):
-    """带容差的 RCC8:距离小于 tol 视为 EC,避免离散跳变错过相切"""
     if a.intersects(b):
-        # 已经相交,细分 PO / 内含
         if a.equals(b): return "EQ"
         if a.within(b): return "TPP" if a.boundary.intersects(b.boundary) else "NTPP"
         if b.within(a): return "TPPi" if a.boundary.intersects(b.boundary) else "NTPPi"
         if a.touches(b): return "EC"
         return "PO"
-    # 未相交:看距离是否在容差内
     if a.distance(b) <= tol:
-        return "EC"          # 足够近,视为刚好接触
+        return "EC"          
     return "DC"
 
 # ---------- Define region of environment ----------
@@ -76,12 +72,12 @@ FORBIDDEN_ZONE2 = Polygon([
     (0.40, -0.60),
 ])
 FORBIDDEN_ZONES = [FORBIDDEN_ZONE1, FORBIDDEN_ZONE2]
-ROBOT_RADIUS = 0.035   # e-puck 半径约 3.5cm
+ROBOT_RADIUS = 0.035   
 #SAFETY_MARGIN = 0.03
 PLAN_RADIUS = ROBOT_RADIUS
 
 def robot_footprint(x, y):
-    """把机器人近似成一个圆形区域"""
+    """similar to the function for creating a circle region"""
     return Point(x, y).buffer(ROBOT_RADIUS)
 
 def make_box_region(pos, half=0.05):
@@ -185,10 +181,9 @@ def astar(grid, start, goal, cost_map):
                 heapq.heappush(open_set, (ng + h(nxt, goal), nxt))
     return None
 
-# ---------- obtain robot heading direction(绕竖直 z 轴的偏航角)----------
+# ---------- obtain robot heading direction----------
 def get_heading():
-    o = epuck.getOrientation()   # 3x3 旋转矩阵,行主序 9 个数
-    # 机器人前方在世界坐标的投影,取 x-y 平面上的角度
+    o = epuck.getOrientation()   
     return math.atan2(o[3], o[0])
 
 # ---------- function for adding obstacles into grid    
@@ -256,7 +251,7 @@ def planning_map(known_map, forbidden_mask=None, temp_obstacle=None):
         m[temp_obstacle == 1] = OCCUPIED
     return m
 
-PUSH_PENALTY = 3 # extra cost for pushing a movable object(means more 15 grid cells)
+PUSH_PENALTY = 4 # extra cost for pushing a movable object(means more 15 grid cells)
 cost_map = np.zeros((H, W)) # cost map for A* planning, default 0 for free space
 
 # ---------- robot pathfinding plan ----------
@@ -283,13 +278,12 @@ forbidden_mask = np.zeros((H, W))
 for r in range(H):
     for c in range(W):
         wx, wy = grid_to_world(c, r)
-        cell = Point(wx, wy).buffer(PLAN_RADIUS)   # 半径+安全余量
-        # 只要机器人在该格会与禁区相交(非 DC 也非 EC),就禁止进入
+        cell = Point(wx, wy).buffer(PLAN_RADIUS)   
         for zone in FORBIDDEN_ZONES:
             rel = rcc8_relation_tol(cell, zone)
             if rel not in ("DC", "EC"):
                 forbidden_mask[r, c] = 1
-                known_map[r, c] = OCCUPIED        # 对 A* 而言同样不可通行
+                known_map[r, c] = OCCUPIED        
                 break
 print(f"Forbidden rasterising finished")
 
@@ -396,7 +390,7 @@ for trial in range(1, NUM_TRIALS + 1):
             if dist <= SENSOR_RANGE:                   
                 c, r = world_to_grid(mb_pos[0], mb_pos[1])
                 if is_pushable("MOVABLE_BOX", ep, known_map):
-                    hx = 0.05 + ROBOT_RADIUS      # 半边长 + 机器人半径
+                    hx = 0.05 + ROBOT_RADIUS      
                     hy = 0.05 + ROBOT_RADIUS
                     c_min, r_min = world_to_grid(mb_pos[0]-hx, mb_pos[1]-hy)
                     c_max, r_max = world_to_grid(mb_pos[0]+hx, mb_pos[1]+hy)
@@ -405,7 +399,7 @@ for trial in range(1, NUM_TRIALS + 1):
                             cost_map[rr, cc] = PUSH_PENALTY  # add extra cost for pushing
                     print(f">>> MOVABLE_BOX is pushable (penalty={PUSH_PENALTY})")
                 else:
-                    hx = 0.05 + ROBOT_RADIUS      # 半边长 + 机器人半径
+                    hx = 0.05 + ROBOT_RADIUS      
                     hy = 0.05 + ROBOT_RADIUS
                     c_min, r_min = world_to_grid(mb_pos[0]-hx, mb_pos[1]-hy)
                     c_max, r_max = world_to_grid(mb_pos[0]+hx, mb_pos[1]+hy)
@@ -540,10 +534,6 @@ cmap = matplotlib.colors.ListedColormap(["lightgray", "white", "dimgray"]) # thr
 ax.imshow(known_map + 1, origin="lower", cmap=cmap, vmin=0, vmax=2)
 # robot trajectory(solid line)
 colors = plt.cm.viridis(np.linspace(0, 1, len(all_trajectory)))
-# for i, traj in enumerate(all_trajectory):
-#     g = [world_to_grid(p[0], p[1]) for p in traj]
-#     ax.plot([p[0] for p in g], [p[1] for p in g],
-#             "-", color=colors[i], linewidth=2, label=f"Trial {i+1}")
 for p, col, ls, lab in [
         (path_lo, "#1f4e79", "-",  f"$Penalty = 3.0$  (push, $L$ = {L_lo:.1f})"),
         (path_hi, "#c00000", "--", f"$Penalty = 3.5$  (detour, $L$ = {L_hi:.1f})")]:

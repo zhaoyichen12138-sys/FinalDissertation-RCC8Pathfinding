@@ -1,4 +1,3 @@
-"""local perception with memory: the robot can remember the known map and update it with new perception, and do A* planning on the known map"""
 from controller import Supervisor
 import os
 import numpy as np
@@ -40,17 +39,17 @@ def grid_to_world(col, row):
 
 # -----------RCC8 relation definition ---------------
 def rcc8_relation_tol(a, b, tol=0.02):
-    """带容差的 RCC8:距离小于 tol 视为 EC,避免离散跳变错过相切"""
+    """RCC8 with tolerance: distances less than tol are considered EC, to avoid discrete jumps and missing tangent contacts"""
     if a.intersects(b):
-        # 已经相交,细分 PO / 内含
+        # already intersecting
         if a.equals(b): return "EQ"
         if a.within(b): return "TPP" if a.boundary.intersects(b.boundary) else "NTPP"
         if b.within(a): return "TPPi" if a.boundary.intersects(b.boundary) else "NTPPi"
         if a.touches(b): return "EC"
         return "PO"
-    # 未相交:看距离是否在容差内
+    # non-intersecting: check if distance is within tolerance
     if a.distance(b) <= tol:
-        return "EC"          # 足够近,视为刚好接触
+        return "EC"          # close enough, considered just touching
     return "DC"
 
 # ---------- Define region of environment ----------
@@ -76,12 +75,12 @@ FORBIDDEN_ZONE2 = Polygon([
     (0.40, -0.60),
 ])
 FORBIDDEN_ZONES = [FORBIDDEN_ZONE1, FORBIDDEN_ZONE2]
-ROBOT_RADIUS = 0.035   # e-puck 半径约 3.5cm
+ROBOT_RADIUS = 0.035   
 #SAFETY_MARGIN = 0.03
 PLAN_RADIUS = ROBOT_RADIUS
 
 def robot_footprint(x, y):
-    """把机器人近似成一个圆形区域"""
+    # simple circular footprint for the robot
     return Point(x, y).buffer(ROBOT_RADIUS)
 
 def make_box_region(pos, half=0.05):
@@ -184,10 +183,9 @@ def astar(grid, start, goal):
                 heapq.heappush(open_set, (ng + h(nxt, goal), nxt))
     return None
 
-# ---------- obtain robot heading direction(绕竖直 z 轴的偏航角)----------
+# ---------- obtain robot heading direction ----------
 def get_heading():
-    o = epuck.getOrientation()   # 3x3 旋转矩阵,行主序 9 个数
-    # 机器人前方在世界坐标的投影,取 x-y 平面上的角度
+    o = epuck.getOrientation()   
     return math.atan2(o[3], o[0])
 
 # ---------- function for adding obstacles into grid    
@@ -264,13 +262,12 @@ forbidden_mask = np.zeros((H, W))
 for r in range(H):
     for c in range(W):
         wx, wy = grid_to_world(c, r)
-        cell = Point(wx, wy).buffer(PLAN_RADIUS)   # 半径+安全余量
-        # 只要机器人在该格会与禁区相交(非 DC 也非 EC),就禁止进入
+        cell = Point(wx, wy).buffer(PLAN_RADIUS) 
         for zone in FORBIDDEN_ZONES:
             rel = rcc8_relation_tol(cell, zone)
             if rel not in ("DC", "EC"):
                 forbidden_mask[r, c] = 1
-                known_map[r, c] = OCCUPIED        # 对 A* 而言同样不可通行
+                known_map[r, c] = OCCUPIED        
                 break
 print(f"Forbidden rasterising finished, occupied {int(forbidden_mask.sum())} grids")
 
@@ -380,7 +377,7 @@ for trial in range(1, NUM_TRIALS + 1):
                     known_map[r, c] = FREE             # pushable → can pass
                     print(f">>> MOVABLE_BOX is pushable, planning to pass through")
                 else:
-                    hx = 0.05 + ROBOT_RADIUS      # 半边长 + 机器人半径
+                    hx = 0.05 + ROBOT_RADIUS      
                     hy = 0.05 + ROBOT_RADIUS
                     c_min, r_min = world_to_grid(mb_pos[0]-hx, mb_pos[1]-hy)
                     c_max, r_max = world_to_grid(mb_pos[0]+hx, mb_pos[1]+hy)
